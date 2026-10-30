@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { inventorySchema, managedStock } from "./inventory-schema.ts";
 import { getDatabase } from "./database.ts";
 import { products, type Product } from "./catalog.ts";
 import { OrderError, quoteDraft, type DraftOrder } from "./order-domain.ts";
 
-type Row = { id: string; request_hash: string; lines_json: string; total_cents: number; created_at: string; status: "draft" | "cancelled"; cancelled_at: string | null };
+type Row = { id: string; request_hash: string; lines_json: string; total_cents: number; created_at: string; status: DraftOrder["status"]; cancelled_at: string | null };
 export type Ticket = { id: string; orderId: string | null; subject: string; status: "open" | "closed"; createdAt: string; messages: { author: "customer" | "admin"; text: string; createdAt: string }[] };
 type TicketRow = { id: string; order_id: string | null; subject: string; status: "open" | "closed"; created_at: string; fingerprint: string };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -15,10 +16,11 @@ function textValue(value: unknown, min: number, max: number, label: string) {
   return value.trim();
 }
 function publicOrder(row: Row): DraftOrder {
-  return { id: row.id, lines: JSON.parse(row.lines_json), totalCents: row.total_cents, currency: "USDT", status: row.status, paymentStatus: "not_configured", createdAt: row.created_at, ...(row.cancelled_at ? { cancelledAt: row.cancelled_at } : {}) };
+  return { id: row.id, lines: JSON.parse(row.lines_json), totalCents: row.total_cents, currency: "USDT", status: row.status, paymentStatus: row.status === "demo_delivered" ? "demo_debited" : row.status === "demo_refunded" ? "demo_refunded" : "not_configured", createdAt: row.created_at, ...(row.cancelled_at ? { cancelledAt: row.cancelled_at } : {}) };
 }
 
 export function createOrderStore(db: DatabaseSync) {
+  inventorySchema(db);
   db.exec(`PRAGMA busy_timeout=5000;
     CREATE TABLE IF NOT EXISTS draft_orders (id TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,idempotency_key TEXT NOT NULL,request_hash TEXT NOT NULL,lines_json TEXT NOT NULL,total_cents INTEGER NOT NULL CHECK(total_cents > 0),created_at TEXT NOT NULL,UNIQUE(owner_hash,idempotency_key));
     CREATE INDEX IF NOT EXISTS draft_orders_owner_created ON draft_orders(owner_hash,created_at);
@@ -38,7 +40,8 @@ export function createOrderStore(db: DatabaseSync) {
   function catalog(): Product[] {
     return products.map(p => {
       const r = db.prepare("SELECT * FROM catalog WHERE id=?").get(p.id) as { price_cents: number; stock: number; active: number };
-      return { ...p, priceCents: r.price_cents, stock: r.stock, active: !!r.active };
+      const stock = managedStock(db, p.id);
+      return { ...p, priceCents: r.price_cents, stock: stock ?? r.stock, inventoryManaged: stock !== null, active: !!r.active };
     });
   }
   function get(owner: string, id: string) {
@@ -85,7 +88,7 @@ export function createOrderStore(db: DatabaseSync) {
       return (db.prepare("SELECT * FROM draft_orders WHERE owner_hash=? ORDER BY created_at DESC LIMIT 100").all(ownerHash(owner)) as Row[]).map(publicOrder);
     },
     cancel(owner: string, id: string) {
-      return atomic(() => { get(owner, id); db.prepare("UPDATE draft_orders SET status='cancelled',cancelled_at=? WHERE owner_hash=? AND id=? AND status='draft'").run(new Date().toISOString(), ownerHash(owner), id); return get(owner, id); });
+      return atomic(() => { const order = get(owner, id); if (!["draft", "cancelled"].includes(order.status)) throw new OrderError("Una compra entregada requiere una devolución; no se puede cancelar como borrador.", 409); db.prepare("UPDATE draft_orders SET status='cancelled',cancelled_at=? WHERE owner_hash=? AND id=? AND status='draft'").run(new Date().toISOString(), ownerHash(owner), id); return get(owner, id); });
     },
     tickets(owner: string): Ticket[] { return (db.prepare("SELECT * FROM support_tickets WHERE owner_hash=? ORDER BY created_at DESC LIMIT 50").all(ownerHash(owner)) as TicketRow[]).map(publicTicket); },
     createTicket(owner: string, key: string, input: Record<string, unknown>) {
@@ -127,7 +130,7 @@ export function createOrderStore(db: DatabaseSync) {
     updateProduct(actor: string, id: string, input: Record<string, unknown>) {
       if (!products.some(p => p.id === id)) throw new OrderError("Producto no encontrado.", 404);
       if (Object.keys(input).some(k => !["priceCents", "stock", "active"].includes(k)) || !Number.isSafeInteger(input.priceCents) || (input.priceCents as number) < 1 || (input.priceCents as number) > 1000000 || !Number.isSafeInteger(input.stock) || (input.stock as number) < 0 || (input.stock as number) > 10000 || typeof input.active !== "boolean") throw new OrderError("Revisa el precio, las existencias y la visibilidad.");
-      return atomic(() => { db.prepare("UPDATE catalog SET price_cents=?,stock=?,active=? WHERE id=?").run(input.priceCents as number, input.stock as number, Number(input.active), id); audit(actor, "catalog.update", id); return catalog(); });
+      return atomic(() => { const stock = managedStock(db, id); if (stock !== null && input.stock !== stock) throw new OrderError("Las existencias se calculan desde Inventario y licencias.", 409); db.prepare("UPDATE catalog SET price_cents=?,stock=?,active=? WHERE id=?").run(input.priceCents as number, input.stock as number, Number(input.active), id); audit(actor, "catalog.update", id); return catalog(); });
     },
   };
 }

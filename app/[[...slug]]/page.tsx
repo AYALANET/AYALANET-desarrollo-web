@@ -3,7 +3,7 @@ import Storefront from "@/components/storefront";
 import { products } from "@/lib/catalog";
 
 type Props = { params: Promise<{ slug?: string[] }>; searchParams: Promise<{ pedido?: string | string[] }> };
-const titles: Record<string, string> = { checkout: "Revisar pedido", pedidos: "Mis pedidos", pedido: "Detalle del pedido", cuenta: "Mi cuenta", ayuda: "Centro de ayuda", condiciones: "Información de la tienda", admin: "Administración" };
+const titles: Record<string, string> = { billetera: "Mi billetera", checkout: "Revisar pedido", pedidos: "Mis pedidos", pedido: "Detalle del pedido", cuenta: "Mi cuenta", ayuda: "Centro de ayuda", condiciones: "Información de la tienda", admin: "Administración" };
 export async function generateMetadata({ params }: Props) {
   const { slug = [] } = await params;
   const title = slug[0] === "producto" ? products.find(p => p.id === slug[1])?.name : titles[slug[0]];

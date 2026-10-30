@@ -11,8 +11,8 @@ export type DraftOrder = {
   lines: OrderLine[];
   totalCents: number;
   currency: "USDT";
-  status: "draft" | "cancelled";
-  paymentStatus: "not_configured";
+  status: "draft" | "cancelled" | "demo_delivered" | "demo_refunded";
+  paymentStatus: "not_configured" | "demo_debited" | "demo_refunded";
   createdAt: string;
   cancelledAt?: string;
 };

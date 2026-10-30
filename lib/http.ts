@@ -15,7 +15,7 @@ export function hasAllowedOrigin(request: Request, configuredOrigin = process.en
   } catch { return false; }
 }
 
-export async function limitedJson(request: Request) {
+export async function limitedJson(request: Request, maxBytes = 16_384) {
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") throw new OrderError("Se requiere JSON.", 415);
   const reader = request.body?.getReader();
   if (!reader) throw new OrderError("Falta el pedido.");
@@ -24,7 +24,7 @@ export async function limitedJson(request: Request) {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.length;
-    if (size > 16_384) { await reader.cancel(); throw new OrderError("Solicitud demasiado grande.", 413); }
+    if (size > maxBytes) { await reader.cancel(); throw new OrderError("Solicitud demasiado grande.", 413); }
     chunks.push(value);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown; }

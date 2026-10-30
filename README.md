@@ -1,6 +1,6 @@
 # AYALANET · tienda web y Telegram
 
-Tienda web independiente en desarrollo. Incluye catálogo de ejemplo, fichas, carrito persistente, cuentas, recuperación de acceso, pedidos de prueba, consultas privadas y administración con compras, ventas y ganancias.
+Tienda web independiente en desarrollo. Incluye catálogo de ejemplo, fichas, carrito persistente, cuentas, recuperación de acceso, pedidos de prueba, consultas privadas y administración con compras, ventas y ganancias, inventario cifrado y billetera de saldo ficticio.
 
 **No recibe dinero, compra a proveedores ni entrega productos reales.** AyalaPay se integrará al final, por decisión del propietario. Telegram se reserva para atención y avisos. No se modificó ayalanet.com, sus proveedores ni el repositorio de AyalaPay.
 
@@ -25,11 +25,12 @@ Fijar `STORE_ORIGIN` al origen HTTPS canónico, sin ruta ni barra final, cuando 
 - `/producto/{id}`: región, plataforma, requisitos, instrucciones y productos relacionados.
 - `/checkout`: cantidades, total y revisión explícita antes de guardar el borrador.
 - `/pedidos` y `/pedido/{id}`: búsqueda, filtro, detalle, seguimiento y cancelación de borradores.
+- `/billetera`: saldo de prueba, historial, bono ficticio único y solicitudes de recarga pendientes de AyalaPay.
 - `/cuenta`: registro con usuario/contraseña, entrada, salida y recuperación con clave de un solo uso.
 - `/ayuda`: preguntas frecuentes, consultas vinculadas a pedidos propios, mensajes y cierre.
 - `/condiciones`: descripción de la prueba y datos almacenados. Las condiciones comerciales definitivas siguen pendientes.
 
-El carrito contiene únicamente referencias/cantidades y se guarda en el navegador. Los precios y existencias los valida el servidor. Los reintentos conservan el mismo pedido, incluso si el catálogo cambia después. El borrador nunca pasa a pagado: solo admite `draft` o `cancelled`, con `paymentStatus: not_configured`.
+El carrito contiene únicamente referencias/cantidades y se guarda en el navegador. Los precios y existencias los valida el servidor. Los reintentos conservan el mismo pedido, incluso si el catálogo cambia después. Un borrador admite cancelación o una compra con saldo ficticio cuando hay códigos de prueba importados. Los estados `demo_delivered` y `demo_refunded` permiten probar entrega y devolución; nunca representan dinero real. Los borradores conservan `paymentStatus: not_configured`.
 
 Las cuentas permiten recuperar pedidos en otros dispositivos. Al entrar se vinculan únicamente los borradores y consultas de la sesión invitada; los datos de otra cuenta no se trasladan. Las contraseñas usan scrypt y sal aleatoria. La recuperación rota la clave, cambia la contraseña y revoca todas las sesiones anteriores. La clave de recuperación se muestra una vez y no se almacena en texto claro. No existe recuperación por email ni envío de correos. Las sesiones nuevas duran hasta siete días.
 
@@ -46,9 +47,11 @@ node scripts/admin.ts nombre_de_usuario
 node scripts/admin.ts nombre_de_usuario --revoke
 ```
 
+En **Inventario y licencias** se importan lotes CSV/TXT de códigos DEMO-, se detectan duplicados, se calcula stock y se bloquean unidades. La compra con saldo descuenta y asigna los códigos en una transacción. La devolución administrativa no recicla códigos entregados. El archivo privado de cifrado debe respaldarse junto con una copia consistente de la base: perderlo impide recuperar los códigos. Ver [INVENTARIO-Y-BILLETERA.md](docs/INVENTARIO-Y-BILLETERA.md) para formatos, pruebas, clave y límites.
+
 El panel permite consultar pedidos, responder/cerrar consultas, cambiar precio/disponibilidad/existencias del catálogo de prueba y ver la actividad administrativa. Los controles de autorización se ejecutan en el servidor, no solo en la interfaz. Las listas operativas están limitadas a los últimos 100 pedidos/consultas; las tarjetas indican ese alcance.
 
-En **Compras y ganancias** se puede filtrar por fechas UTC, consultar cobros/compras/comisiones/devoluciones/gastos y exportar CSV. Los costes y márgenes del catálogo son privados. Consultar [FINANZAS.md](docs/FINANZAS.md) para fórmulas y límites. El informe real comienza vacío; un borrador o una estimación jamás registra ingresos.
+En **Compras y ganancias** se puede filtrar por fechas UTC, consultar cobros/compras/comisiones/devoluciones/gastos y exportar CSV. Los costes y márgenes del catálogo son privados. Consultar [FINANZAS.md](docs/FINANZAS.md) para fórmulas y límites. El informe real comienza vacío; los borradores, estimaciones, importaciones, recargas y compras con saldo ficticio jamás registran ingresos reales.
 
 ## Validación
 
@@ -59,7 +62,7 @@ NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS=1 npm run build
 npm run test:e2e
 ```
 
-E2E levanta un servidor de producción local en el puerto 3100 con una base temporal independiente. Usa Chromium `/usr/bin/chromium` si está instalado o `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. En otro equipo: `npx playwright install chromium`. La promoción de administradores y los movimientos financieros de prueba ocurren exclusivamente en esa base temporal. No se envían mensajes ni se hacen peticiones de pago.
+E2E levanta un servidor de producción local en el puerto 3100 con una base temporal independiente. Usa Chromium `/usr/bin/chromium` si está instalado o `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. En otro equipo: `npx playwright install chromium`. La promoción de administradores, importaciones, saldo y movimientos financieros de prueba ocurren exclusivamente en esa base temporal. No se envían mensajes ni se hacen peticiones de pago.
 
 Las capturas están en `docs/screenshots/`. El informe de validación de esta fase se registra en [VALIDACION-TIENDA.md](docs/VALIDACION-TIENDA.md).
 

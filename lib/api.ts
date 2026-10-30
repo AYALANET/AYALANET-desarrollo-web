@@ -15,9 +15,9 @@ export function sessionResponse(session: Identity, recoveryKey?: string) {
   response.cookies.set(SESSION_COOKIE, session.token, { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 7 * 86400 });
   return response;
 }
-export async function mutation(request: NextRequest) {
+export async function mutation(request: NextRequest, maxBytes = 16_384) {
   if (!hasAllowedOrigin(request)) throw new OrderError("Origen no permitido.", 403);
-  const who = identity(request), raw = await limitedJson(request);
+  const who = identity(request), raw = await limitedJson(request, maxBytes);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new OrderError("Solicitud no válida.");
   return { who, input: raw as Record<string, unknown> };
 }

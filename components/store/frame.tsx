@@ -12,7 +12,7 @@ export function Frame({ children }: { children: ReactNode }) {
     <div className="preview-strip"><span className="status-dot" /> Tienda en pruebas <span className="strip-divider">·</span> Catálogo de ejemplo. Sin cobros ni entregas reales.</div>
     <header className="site-header"><div className="header-inner">
       <Link className="brand" href="/" aria-label="AYALANET, ir al catálogo"><span className="brand-symbol"><Icon name="bolt" size={24} /></span>AYALANET<span className="brand-dot">.</span></Link>
-      <nav aria-label="Navegación principal">{[["/", "Tienda"], ["/pedidos", "Mis pedidos"], ["/ayuda", "Ayuda"]].map(([href, label]) => <Link key={href} href={href} aria-current={path === href ? "page" : undefined} className={path === href ? "nav-active" : ""}>{label}</Link>)}</nav>
+      <nav aria-label="Navegación principal">{[["/", "Tienda"], ["/pedidos", "Mis pedidos"], ["/billetera", "Billetera"], ["/ayuda", "Ayuda"]].map(([href, label]) => <Link key={href} href={href} aria-current={path === href ? "page" : undefined} className={path === href ? "nav-active" : ""}>{label}</Link>)}</nav>
       <div className="header-actions"><Link href="/cuenta" className="account-link">{account ? account.name.split(" ")[0] : "Mi cuenta"}</Link><Link className="header-cart" href="/checkout" aria-label={`Ver carrito, ${quantity} productos`}><Icon name="bag" /><span className="cart-word">Carrito</span><span className="cart-count">{quantity}</span></Link></div>
     </div></header>
     <main className="store-shell" id="contenido">{error && <div className="error-message" role="alert">{error} <button className="text-button" onClick={() => reload().catch(() => undefined)}>Reintentar</button></div>}{children}</main>

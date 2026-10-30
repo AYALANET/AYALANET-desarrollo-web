@@ -199,3 +199,80 @@ test("finanzas privadas: cálculos reales del informe, filtros, CSV y estimacion
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "docs/screenshots/finance-mobile.png", fullPage: true });
 });
+
+test("inventario y billetera: importar, comprar, entrega privada, recarga pendiente y devolución", async ({ page, browser }) => {
+  await page.goto("/"); await expect(page.locator(".product-card")).toHaveCount(6);
+  const username = `stock_${randomUUID().slice(0, 8)}`;
+  expect((await page.request.post("/api/auth/register", { headers: origin, data: { name: "Inventario prueba", username, password: demoPassword } })).status()).toBe(200);
+  const db = new DatabaseSync(process.env.E2E_DATABASE_PATH!);
+  try { db.prepare("UPDATE accounts SET role='admin' WHERE username=?").run(username); } finally { db.close(); }
+  await page.goto("/admin"); await page.getByRole("button", { name: "Inventario y licencias", exact: true }).click();
+  await page.getByLabel("Nombre del lote", { exact: true }).fill("Steam · lote de demostración");
+  await page.getByLabel("Proveedor del lote", { exact: true }).fill("Proveedor ficticio");
+  await page.getByLabel("Coste unitario de prueba (USDT)", { exact: true }).fill("18.123456");
+  await page.getByLabel("Archivo CSV o TXT", { exact: true }).setInputFiles({ name: "demo.csv", mimeType: "text/csv", buffer: Buffer.from("code,expires_on\nDEMO-BROWSER-001,2099-12-31\nDEMO-BROWSER-002,\nDEMO-BROWSER-003,") });
+  await page.getByRole("button", { name: "Validar lote antes de importar" }).click();
+  await expect(page.locator(".import-preview")).toContainText("3 códigos");
+  await page.getByRole("button", { name: "Confirmar importación de prueba" }).click();
+  await expect(page.getByRole("status")).toContainText("Lote guardado: 3 códigos");
+  await expect(page.locator(".inventory-metrics>div").first()).toContainText("Stock bajo");
+  expect((await page.request.get("/api/store/admin/inventory")).headers()["cache-control"]).toBe("no-store");
+  const metadata = await (await page.request.get("/api/store/admin/inventory")).text(); expect(metadata).not.toContain("DEMO-BROWSER-001");
+  const cryptoDb = new DatabaseSync(process.env.E2E_DATABASE_PATH!);
+  try { expect(JSON.stringify(cryptoDb.prepare("SELECT * FROM inventory_units").all())).not.toContain("DEMO-BROWSER-001"); } finally { cryptoDb.close(); }
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await page.screenshot({ path: "docs/screenshots/inventory.png", fullPage: true });
+  for (const width of [320, 390]) { await page.setViewportSize({ width, height: 844 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); }
+  await page.screenshot({ path: "docs/screenshots/inventory-mobile.png", fullPage: true });
+
+  const customerContext = await browser.newContext({ baseURL }), outsiderContext = await browser.newContext({ baseURL });
+  try {
+    const customer = await customerContext.newPage(), outsider = await outsiderContext.newPage();
+    await customer.goto("/billetera"); await expect(customer.getByRole("heading", { name: "Tu billetera va contigo" })).toBeVisible();
+    expect((await customer.request.get("/api/store/wallet")).status()).toBe(401);
+    for (const [client, name] of [[customer, "Comprador de prueba"], [outsider, "Otra cuenta de prueba"]] as const) {
+      await client.request.get("/api/session");
+      expect((await client.request.post("/api/auth/register", { headers: origin, data: { name, username: `wallet_${randomUUID().slice(0, 8)}`, password: demoPassword } })).status()).toBe(200);
+    }
+    expect((await customer.request.get("/api/store/admin/inventory")).status()).toBe(403);
+    expect((await customer.request.post("/api/store/admin/inventory/import", { headers: origin, data: {} })).status()).toBe(403);
+    expect((await customer.request.post("/api/store/wallet", { headers: origin, data: { action: "demo_credit", amount: 9000 } })).status()).toBe(400);
+    expect((await customer.request.post("/api/store/wallet", { headers: { Origin: "https://untrusted.example" }, data: { action: "demo_credit" } })).status()).toBe(403);
+    await customer.reload(); await customer.getByRole("button", { name: "Añadir 50 USDT de prueba" }).click();
+    await expect(customer.locator(".wallet-balance h2")).toContainText("50.00");
+    await customer.getByRole("button", { name: "Preparar solicitud de recarga" }).click();
+    await expect(customer.getByRole("status")).toContainText("El saldo no ha cambiado");
+    expect((await (await customer.request.get("/api/store/wallet")).json()).balanceMicros).toBe(50000000);
+    await customer.goto("/producto/steam-20"); await customer.getByRole("button", { name: "Añadir Steam Wallet al carrito", exact: true }).click();
+    await customer.goto("/checkout"); await customer.getByRole("checkbox").check(); await customer.getByRole("button", { name: "Guardar pedido de prueba" }).click();
+    await expect(customer).toHaveURL(/\/pedido\/DEMO-/); const id = new URL(customer.url()).pathname.split("/").at(-1)!;
+    await customer.getByRole("checkbox", { name: "Confirmo el uso de saldo ficticio" }).check();
+    await customer.getByRole("button", { name: "Comprar con saldo de prueba", exact: true }).click();
+    await expect(customer.locator(".order-card .draft-badge")).toHaveText("Entregado · prueba");
+    const replay = await customer.request.post(`/api/store/orders/${id}`, { headers: origin, data: { action: "demo_purchase" } }); expect(replay.status()).toBe(200);
+    await customer.getByRole("button", { name: "Mostrar mis códigos de prueba" }).click(); await expect(customer.locator(".delivery-code")).toHaveText("DEMO-BROWSER-001");
+    expect((await outsider.request.post(`/api/store/orders/${id}`, { headers: origin, data: { action: "reveal" } })).status()).toBe(404);
+    expect((await customer.request.post(`/api/store/admin/refund/${id}`, { headers: origin, data: { action: "demo_refund" } })).status()).toBe(403);
+    const local = await customer.evaluate(() => JSON.stringify(localStorage)); expect(local).not.toContain("DEMO-BROWSER-001");
+    await customer.setViewportSize({ width: 1440, height: 1050 });
+    await customer.screenshot({ path: "docs/screenshots/delivery.png", fullPage: true });
+    await customer.goto("/billetera"); await expect(customer.locator(".wallet-balance h2")).toContainText("28.50");
+    await expect(customer.getByRole("button", { name: "Añadir 50 USDT de prueba" })).toHaveCount(0);
+    await expect(customer.locator(".wallet-ledger").first().locator("li")).toHaveCount(2);
+    await customer.screenshot({ path: "docs/screenshots/wallet.png", fullPage: true });
+    for (const width of [320, 390]) { await customer.setViewportSize({ width, height: 844 }); expect(await customer.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); }
+    await customer.screenshot({ path: "docs/screenshots/wallet-mobile.png", fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    await page.getByRole("button", { name: "Actualizar", exact: true }).click();
+    await page.getByRole("button", { name: "Pedidos", exact: true }).click();
+    const row = page.locator("tr").filter({ hasText: id });
+    await row.getByRole("button", { name: "Devolver saldo de prueba" }).click();
+    await row.getByRole("button", { name: "Confirmar devolución de prueba" }).click(); await expect(row).toContainText("Saldo devuelto · prueba");
+    expect((await page.request.post(`/api/store/admin/refund/${id}`, { headers: origin, data: { action: "demo_refund" } })).status()).toBe(200);
+    await customer.reload(); await expect(customer.locator(".wallet-balance h2")).toContainText("50.00");
+    expect((await customer.request.post(`/api/store/orders/${id}`, { headers: origin, data: { action: "reveal" } })).status()).toBe(409);
+    const report = await (await page.request.get("/api/store/admin/finance")).json(); expect(report.report.count).toBe(0);
+    const inventory = await (await page.request.get("/api/store/admin/inventory")).json();
+    expect(inventory.batches[0].available).toBe(2); expect(inventory.batches[0].blocked).toBe(1);
+  } finally { await customerContext.close(); await outsiderContext.close(); }
+});

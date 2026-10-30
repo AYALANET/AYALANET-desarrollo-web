@@ -12,6 +12,7 @@ export type Product = {
   mark: string;
   badge?: string;
   active?: boolean;
+  inventoryManaged?: boolean;
 };
 
 // Catálogo ficticio para desarrollo. No representa existencias de los proveedores.
