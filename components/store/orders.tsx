@@ -1,0 +1,48 @@
+"use client";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import { formatAmount } from "@/lib/catalog";
+import type { DraftOrder } from "@/lib/order-domain";
+import { api, useResource, useStore } from "./context";
+import { CartLines, PaymentPending } from "./catalog";
+import { Empty, ErrorMessage, PageHeading } from "./frame";
+import { Icon } from "./icon";
+
+export const date = (value: string) => new Date(value).toLocaleString("es-PE", { dateStyle: "medium", timeStyle: "short" });
+export function OrderCard({ order }: { order: DraftOrder }) {
+  return <article className="order-card"><div className="order-top"><Link className="order-reference" href={`/pedido/${order.id}`}>{order.id.slice(0, 18)}</Link><span className={`draft-badge ${order.status === "cancelled" ? "cancelled-badge" : ""}`}>{order.status === "cancelled" ? "Cancelado · sin pago" : "Borrador · sin pago"}</span></div><p className="order-date">{date(order.createdAt)}</p>{order.lines.map(line => <div key={line.productId} className="order-line"><span>{line.quantity} × {line.name}</span><span>{formatAmount(line.unitPriceCents * line.quantity)} USDT</span></div>)}<div className="order-total"><span>Total del borrador</span><strong>{formatAmount(order.totalCents)} USDT</strong></div><Link className="order-detail-link" href={`/pedido/${order.id}`}>Ver detalle del pedido <Icon name="arrow" size={15} /></Link></article>;
+}
+export function Checkout() {
+  const { products, cart, ready, quantity, total, clearCart, account, reload } = useStore(), router = useRouter();
+  const [reviewed, setReviewed] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState("");
+  const pending = useRef<{ fingerprint: string; key: string } | null>(null);
+  async function save() {
+    if (!reviewed || !quantity || saving) return;
+    setSaving(true); setError("");
+    const items = products.filter(p => cart[p.id]).map(p => ({ productId: p.id, quantity: cart[p.id] })).sort((a, b) => a.productId.localeCompare(b.productId));
+    const fingerprint = JSON.stringify({ items, total }); let key = pending.current?.fingerprint === fingerprint ? pending.current.key : crypto.randomUUID();
+    try {
+      try { const stored = JSON.parse(sessionStorage.getItem("ayalanet-checkout") || "null"); if (stored?.fingerprint === fingerprint && typeof stored.key === "string") key = stored.key; sessionStorage.setItem("ayalanet-checkout", JSON.stringify({ fingerprint, key })); } catch { /* Still idempotent within this request. */ }
+      pending.current = { fingerprint, key };
+      const result = await api<{ order: DraftOrder }>("/api/orders", { items, expectedTotalCents: total }, key);
+      clearCart(); pending.current = null; try { sessionStorage.removeItem("ayalanet-checkout"); } catch { /* Optional browser storage. */ }
+      router.push(`/pedido/${result.order.id}`);
+    } catch (e) { setError(e instanceof Error ? e.message : "No pudimos guardar el pedido."); setSaving(false); }
+  }
+  return <><PageHeading eyebrow="REVISA CADA DETALLE" title="Tu pedido"><Link href="/" className="back-catalog">Seguir explorando</Link></PageHeading><ol className="checkout-steps" aria-label="Pasos del pedido"><li className="current">1 <span>Revisión</span></li><li>2 <span>Guardar borrador</span></li><li>3 <span>Pago · próximamente</span></li></ol>
+    {!ready ? <p className="loading-state">Cargando carrito…</p> : !quantity ? <Empty title="Tu carrito está vacío"><p>Elige un producto para comenzar.</p><Link href="/" className="primary-button">Explorar catálogo</Link></Empty> : <div className="checkout-grid"><section className="surface"><h2>Productos seleccionados</h2><CartLines disabled={saving} /><div className="info-note"><Icon name="shield" size={20} /><p>Comprueba la región y la plataforma de cada producto. Este pedido guarda una selección de prueba; no reserva existencias ni inicia una entrega.</p></div>{!account && <div className="account-invite"><h3>Conserva tus pedidos entre dispositivos</h3><p>Puedes continuar como invitado o crear tu cuenta. Al registrarte, los borradores de esta sesión se vincularán a ella.</p><Link href="/cuenta">Entrar o crear cuenta →</Link></div>}</section><aside className="surface checkout-summary"><h2>Resumen</h2><div className="summary-row"><span>Productos ({quantity})</span><strong>{formatAmount(total)} USDT</strong></div><div className="cart-total"><span>Total de prueba</span><strong>{formatAmount(total)} <small>USDT</small></strong></div><PaymentPending /><p className="muted">El medio de pago se elegirá cuando AyalaPay esté disponible. Ahora puedes guardar y consultar el borrador.</p><label className="checkbox-field"><input type="checkbox" checked={reviewed} disabled={saving} onChange={e => setReviewed(e.target.checked)} /><span>He revisado los productos y sus regiones. Entiendo que este pedido es de prueba.</span></label><button className="primary-button full-width" disabled={!reviewed || saving} onClick={save}>{saving ? "Guardando…" : "Guardar pedido de prueba"}<Icon name="arrow" size={17} /></button><ErrorMessage text={error} />{error && <button className="text-button" disabled={saving} onClick={() => { setReviewed(false); reload().catch(e => setError(e.message)); }}>Actualizar catálogo y carrito</button>}<p className="checkout-note">No se ha realizado ningún cobro.</p></aside></div>}</>;
+}
+export function Orders() {
+  const { ready, account } = useStore(), resource = useResource<{ orders: DraftOrder[] }>("/api/orders", ready);
+  const [filter, setFilter] = useState("all"), [search, setSearch] = useState("");
+  const shown = resource.data?.orders.filter(o => (filter === "all" || o.status === filter) && `${o.id} ${o.lines.map(l => l.name).join(" ")}`.toLowerCase().includes(search.toLowerCase())) || [];
+  return <section className="orders-section"><PageHeading eyebrow="TU ACTIVIDAD" title="Mis pedidos"><Link href="/" className="back-catalog">Ir a la tienda</Link></PageHeading><p className="orders-explanation">{account ? `Los pedidos de ${account.name}, disponibles al iniciar sesión.` : "Estás como invitado. Crea una cuenta para consultar tus pedidos desde otros dispositivos."} Todos son borradores sin cobros ni entregas.</p><div className="list-toolbar"><label className="search-box"><Icon name="search" size={17} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Referencia o producto" aria-label="Buscar pedidos" /></label><select value={filter} onChange={e => setFilter(e.target.value)} aria-label="Filtrar pedidos"><option value="all">Todos los pedidos</option><option value="draft">Borradores</option><option value="cancelled">Cancelados</option></select><button className="secondary-button" onClick={resource.refresh}>Actualizar</button></div><ErrorMessage text={resource.error} />{resource.loading ? <p className="loading-state" role="status">Consultando tus pedidos…</p> : shown.length ? <div className="order-list">{shown.map(order => <OrderCard key={order.id} order={order} />)}</div> : <Empty title="No hay pedidos para mostrar"><p>Explora el catálogo o cambia los filtros.</p><Link href="/" className="primary-button">Ver catálogo</Link></Empty>}</section>;
+}
+export function OrderDetail({ id }: { id: string }) {
+  const { ready } = useStore(), resource = useResource<{ order: DraftOrder }>(`/api/store/orders/${id}`, ready);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [confirm, setConfirm] = useState(false);
+  const order = resource.data?.order;
+  async function cancel() { setBusy(true); try { await api(`/api/store/orders/${id}`, { action: "cancel" }); setConfirm(false); resource.refresh(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  return <><PageHeading eyebrow="TODO EN UN SOLO LUGAR" title="Detalle del pedido"><Link href="/pedidos" className="back-catalog">Mis pedidos</Link></PageHeading><ErrorMessage text={resource.error || error} />{resource.loading ? <p className="loading-state">Consultando pedido…</p> : order && <div className="checkout-grid"><div><OrderCard order={order} /><section className="surface order-timeline"><h2>Seguimiento</h2><ol><li className="complete"><strong>Borrador guardado</strong><span>{date(order.createdAt)}</span></li>{order.status === "cancelled" ? <li className="complete"><strong>Cancelado</strong><span>{date(order.cancelledAt!)} · No hubo ningún cobro.</span></li> : <><li><strong>Pago pendiente de habilitar</strong><span>AyalaPay se integrará al final del desarrollo.</span></li><li><strong>Entrega no iniciada</strong><span>No hay códigos ni recargas reales asociados a este borrador.</span></li></>}</ol></section></div><aside className="surface"><h2>Tu pedido, bajo control</h2><p className="muted">Conserva la referencia para consultar cualquier detalle.</p><code className="reference-full">{order.id}</code><Link href={`/ayuda?pedido=${order.id}`} className="secondary-button full-width">Ayuda con este pedido</Link>{order.status === "draft" && <div className="cancel-area">{confirm ? <><p>¿Cancelar este borrador? El historial se conservará.</p><div className="button-row"><button className="danger-button" disabled={busy} onClick={cancel}>Confirmar cancelación</button><button className="secondary-button" disabled={busy} onClick={() => setConfirm(false)}>Volver</button></div></> : <button className="text-button" onClick={() => setConfirm(true)}>Cancelar borrador</button>}</div>}<div className="info-note"><p>No se ha realizado ningún cobro. Los borradores no reservan existencias.</p></div></aside></div>}</>;
+}

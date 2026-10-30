@@ -1,32 +1,54 @@
 # AYALANET · tienda web y Telegram
 
-Primera versión funcional de una tienda web independiente con catálogo de muestra, buscador, filtros, carrito y borradores persistentes. Telegram se ha elegido para atención y avisos. El propietario prioriza USDT BEP20 y tiene una cuenta normal de Binance, sin acceso confirmado a Binance Pay para comercios.
+Tienda web independiente en desarrollo. Incluye catálogo de ejemplo, fichas, carrito persistente, cuentas, recuperación de acceso, pedidos de prueba, consultas privadas y administración con compras, ventas y ganancias.
 
-**Es una demostración: no cobra dinero, no entrega productos y no está conectada a los proveedores ni a Telegram.** Todos los productos, precios y existencias son ficticios. No se modificó ayalanet.com.
+**No recibe dinero, compra a proveedores ni entrega productos reales.** AyalaPay se integrará al final, por decisión del propietario. Telegram se reserva para atención y avisos. No se modificó ayalanet.com, sus proveedores ni el repositorio de AyalaPay.
 
-## Iniciar
+## Ejecutar
 
-Requiere Node.js 24 (usa `node:sqlite`) y npm. Instalar las dependencias fijadas en el lockfile:
+Node.js 24 y npm, con las versiones fijadas en el lockfile:
 
 ```bash
 npm ci
 NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS=1 npm run dev
 ```
 
-En el entorno Codex actual se puede usar `npm ci --cache /workspace/.cache/npm` y el lanzador `bash /workspace/iniciar-ayalanet.sh`. La opción de certificados permite verificar Google Fonts a través del proxy del entorno; no desactiva TLS.
+En Codex se puede usar `npm ci --cache /workspace/.cache/npm`. La opción de certificados conserva la verificación TLS a través del proxy; no desactiva seguridad.
 
-La base se guarda en `.data/store.sqlite`, fuera de Git. Puede elegirse otro archivo mediante `STORE_DATABASE_PATH`. El directorio debe ser escribible y persistente; los pedidos no sobreviven a la pérdida del archivo. No desplegar esta configuración en un sistema efímero o con varias instancias sin adaptar almacenamiento y concurrencia.
+La base SQLite vive en `.data/store.sqlite`, ignorada por Git, con directorio privado y archivo de permisos 0600. `STORE_DATABASE_PATH` permite elegir otra ubicación persistente. Se usa WAL: los respaldos deben ser consistentes, mediante el mecanismo de backup de SQLite o una parada controlada; no copiar solo el archivo principal mientras hay escrituras. Las migraciones actuales añaden tablas/columnas y conservan los borradores anteriores.
 
-Detrás de un proxy, fijar `STORE_ORIGIN` al origen HTTPS exacto de la tienda, sin ruta ni barra final. En local, la comprobación de origen usa el Host de la petición; no confía en un encabezado X-Forwarded-Host arbitrario.
+Fijar `STORE_ORIGIN` al origen HTTPS canónico, sin ruta ni barra final, cuando se publique detrás de un proxy. La sesión usa cookies HttpOnly, SameSite Strict y Secure en producción. No se confía en un X-Forwarded-Host arbitrario.
 
-## Qué se puede probar
+## Recorrido de cliente
 
-1. Filtrar o buscar un producto de ejemplo.
-2. Añadirlo al carrito y cambiar cantidades.
-3. Guardar un pedido de prueba.
-4. Consultarlo en «Mis pedidos» y recargar la página.
+- `/`: búsqueda, categorías, filtro de disponibilidad, orden por precio/nombre y carrito.
+- `/producto/{id}`: región, plataforma, requisitos, instrucciones y productos relacionados.
+- `/checkout`: cantidades, total y revisión explícita antes de guardar el borrador.
+- `/pedidos` y `/pedido/{id}`: búsqueda, filtro, detalle, seguimiento y cancelación de borradores.
+- `/cuenta`: registro con usuario/contraseña, entrada, salida y recuperación con clave de un solo uso.
+- `/ayuda`: preguntas frecuentes, consultas vinculadas a pedidos propios, mensajes y cierre.
+- `/condiciones`: descripción de la prueba y datos almacenados. Las condiciones comerciales definitivas siguen pendientes.
 
-El servidor calcula los importes enteros desde su catálogo; no acepta precios ni estados de pago del navegador. Conserva la misma referencia al reintentar una solicitud y rechaza reutilizarla con otro carrito. Cada sesión anónima solo puede consultar sus propios borradores, mediante cookie HttpOnly/SameSite; dura 24 horas. Los borradores se conservan en el servidor, pero no hay todavía cuentas de usuario ni recuperación entre dispositivos. No se reservan existencias reales.
+El carrito contiene únicamente referencias/cantidades y se guarda en el navegador. Los precios y existencias los valida el servidor. Los reintentos conservan el mismo pedido, incluso si el catálogo cambia después. El borrador nunca pasa a pagado: solo admite `draft` o `cancelled`, con `paymentStatus: not_configured`.
+
+Las cuentas permiten recuperar pedidos en otros dispositivos. Al entrar se vinculan únicamente los borradores y consultas de la sesión invitada; los datos de otra cuenta no se trasladan. Las contraseñas usan scrypt y sal aleatoria. La recuperación rota la clave, cambia la contraseña y revoca todas las sesiones anteriores. La clave de recuperación se muestra una vez y no se almacena en texto claro. No existe recuperación por email ni envío de correos. Las sesiones nuevas duran hasta siete días.
+
+## Panel privado
+
+`/admin` necesita una cuenta con rol de administrador. No hay usuario predeterminado, contraseña inicial ni endpoint público para obtener ese rol.
+
+1. Crear una cuenta desde la tienda.
+2. El operador autorizado del servidor concede el rol desde la consola, usando la misma base que la aplicación:
+
+```bash
+node scripts/admin.ts nombre_de_usuario
+# Retirar el rol:
+node scripts/admin.ts nombre_de_usuario --revoke
+```
+
+El panel permite consultar pedidos, responder/cerrar consultas, cambiar precio/disponibilidad/existencias del catálogo de prueba y ver la actividad administrativa. Los controles de autorización se ejecutan en el servidor, no solo en la interfaz. Las listas operativas están limitadas a los últimos 100 pedidos/consultas; las tarjetas indican ese alcance.
+
+En **Compras y ganancias** se puede filtrar por fechas UTC, consultar cobros/compras/comisiones/devoluciones/gastos y exportar CSV. Los costes y márgenes del catálogo son privados. Consultar [FINANZAS.md](docs/FINANZAS.md) para fórmulas y límites. El informe real comienza vacío; un borrador o una estimación jamás registra ingresos.
 
 ## Validación
 
@@ -35,29 +57,16 @@ npm test
 npm run lint
 NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS=1 npm run build
 npm run test:e2e
-npm audit
 ```
 
-Las pruebas E2E usan una base temporal y levantan su propio servidor en el puerto 3100. Usan Chromium instalado en `/usr/bin/chromium`, si existe; también admiten `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. En otro equipo puede instalarse el navegador de Playwright mediante `npx playwright install chromium`.
+E2E levanta un servidor de producción local en el puerto 3100 con una base temporal independiente. Usa Chromium `/usr/bin/chromium` si está instalado o `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. En otro equipo: `npx playwright install chromium`. La promoción de administradores y los movimientos financieros de prueba ocurren exclusivamente en esa base temporal. No se envían mensajes ni se hacen peticiones de pago.
 
-Las pruebas de dominio cubren cálculo de importes, entradas manipuladas, cantidades, persistencia, aislamiento de sesiones, reintentos, límites y tamaño de solicitud. Las pruebas de navegador/API cubren el carrito y creación de pedidos, vistas móviles, protección de origen y acceso de otra sesión. Se prueban únicamente datos ficticios y servicios locales.
+Las capturas están en `docs/screenshots/`. El informe de validación de esta fase se registra en [VALIDACION-TIENDA.md](docs/VALIDACION-TIENDA.md).
 
-Las capturas de escritorio y móvil se generan en `docs/screenshots/` durante los E2E. No sustituyen una prueba física en iPhone ni una prueba dentro de Telegram.
+## Pendientes para abrir al público
 
-## Pagos y siguientes integraciones
+AyalaPay, proveedores y Telegram no están conectados. Faltan catálogo comercial validado, condiciones de venta/privacidad definitivas, alojamiento HTTPS persistente, operación de backups y monitorización, controles de abuso de producción y MFA administrativo. SQLite de una instancia y los límites locales de esta prueba no sustituyen una arquitectura de producción distribuida. Las sesiones invitadas pueden renovarse y no son una barrera global contra abuso.
 
-Consultar [PAGOS-Y-TELEGRAM.md](docs/PAGOS-Y-TELEGRAM.md) para la decisión de arquitectura y los requisitos pendientes. Binance Pay y USDT BEP20 son integraciones distintas. El acceso comercial a Binance Pay no se obtiene simplemente por tener una cuenta normal.
+No desplegar esta versión automáticamente ni anunciar pagos/entregas operativos. Antes de integrar dinero: completar y verificar AyalaPay, corregir las incidencias documentadas de proveedores y probar el recorrido completo, reintentos, conciliación y devoluciones. Ver [PAGOS-Y-TELEGRAM.md](docs/PAGOS-Y-TELEGRAM.md).
 
-Antes de aceptar dinero hay que configurar el receptor/procesador de USDT, verificar depósitos reales de manera inequívoca, integrar la entrega y comprobar reintentos y reembolsos. También faltan el bot y la vinculación segura entre comprador y chat, autenticación de clientes, protección contra abuso, alojamiento HTTPS y copias de seguridad. No existe ninguna ruta que marque estos borradores como pagados.
-
-La compra de estos productos digitales ocurre en la web independiente. No implementar un checkout cripto dentro de un bot/Mini App para sustituir el requisito de Telegram Stars.
-
-## Archivos principales
-
-- `components/storefront.tsx` y `app/globals.css`: tienda y comportamiento responsive.
-- `lib/catalog.ts`: productos ficticios; no usar como inventario comercial.
-- `lib/order-domain.ts` y `lib/order-store.ts`: validación y almacenamiento de borradores.
-- `app/api/session/` y `app/api/orders/`: sesión y API local.
-- `tests/`: pruebas de dominio, API y navegador.
-
-Los cambios de esta primera versión se prepararon en la rama `feat/tienda-ayalanet-crypto`. Preparar el código y compilarlo no publica la tienda ni guarda automáticamente los avances en GitHub.
+Rama de trabajo: `feat/tienda-ayalanet-crypto`. El código y sus commits no incluyen la base de datos ni publican la aplicación. Guardar una cuenta o consulta en una instancia no la guarda en GitHub.

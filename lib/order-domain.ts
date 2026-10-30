@@ -1,4 +1,4 @@
-import { products } from "./catalog.ts";
+import { products, type Product } from "./catalog.ts";
 
 export class OrderError extends Error {
   status: number;
@@ -11,16 +11,17 @@ export type DraftOrder = {
   lines: OrderLine[];
   totalCents: number;
   currency: "USDT";
-  status: "draft";
+  status: "draft" | "cancelled";
   paymentStatus: "not_configured";
   createdAt: string;
+  cancelledAt?: string;
 };
 
-export function quoteDraft(input: unknown) {
+export function quoteDraft(input: unknown, catalog: readonly Product[] = products) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new OrderError("Pedido no válido.");
   const body = input as Record<string, unknown>;
-  if (Object.keys(body).some((key) => !["items", "method"].includes(key))) throw new OrderError("El precio y el estado se calculan en el servidor.");
-  if (body.method !== "usdt_bep20") throw new OrderError("Método de pago no disponible.");
+  if (Object.keys(body).some((key) => !["items", "method", "expectedTotalCents"].includes(key))) throw new OrderError("El precio y el estado se calculan en el servidor.");
+  if (body.method !== undefined && body.method !== "usdt_bep20") throw new OrderError("Método de pago no disponible.");
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 12) throw new OrderError("Añade entre 1 y 12 productos.");
   const seen = new Set<string>();
   const lines: OrderLine[] = body.items.map((raw: unknown) => {
@@ -29,8 +30,8 @@ export function quoteDraft(input: unknown) {
     if (Object.keys(item).some((key) => !["productId", "quantity"].includes(key))) throw new OrderError("Datos de artículo no válidos.");
     if (typeof item.productId !== "string" || seen.has(item.productId)) throw new OrderError("Producto duplicado o no válido.");
     seen.add(item.productId);
-    const product = products.find((p) => p.id === item.productId);
-    if (!product) throw new OrderError("Ese producto no está en el catálogo.");
+    const product = catalog.find((p) => p.id === item.productId);
+    if (!product || product.active === false) throw new OrderError("Ese producto no está disponible en el catálogo.");
     const quantity = item.quantity;
     if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > Math.min(10, product.stock)) {
       throw new OrderError(`Revisa la cantidad de ${product.name}.`);
@@ -39,5 +40,6 @@ export function quoteDraft(input: unknown) {
   }).sort((a, b) => a.productId.localeCompare(b.productId));
   const totalCents = lines.reduce((sum, line) => sum + line.unitPriceCents * line.quantity, 0);
   if (!Number.isSafeInteger(totalCents) || totalCents <= 0) throw new OrderError("Importe no válido.");
-  return { lines, totalCents, method: "usdt_bep20" as const };
+  if (body.expectedTotalCents !== undefined && body.expectedTotalCents !== totalCents) throw new OrderError("El precio cambió. Actualiza el carrito y revisa el nuevo total.", 409);
+  return { lines, totalCents };
 }

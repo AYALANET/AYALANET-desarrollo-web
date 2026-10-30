@@ -1,44 +1,33 @@
-# Decisiones y conexión de pagos
+# Decisión vigente: AyalaPay al final del desarrollo
 
-## Decisión del propietario · 30/10/2026
+El propietario eligió una tienda web independiente que cobrará USDT BEP20 y Binance mediante **AyalaPay**, desarrollado en «AYALANET Proveedores Codex Cloud». El 30/10/2026 indicó completar primero la tienda y dejar los medios de pago para el final.
 
-- Priorizar cobros Binance/USDT en una **tienda web independiente**, con Telegram para atención y avisos.
-- La cuenta disponible es una cuenta normal de Binance; todavía no hay acceso confirmado a Binance Pay para comercios.
-- La versión actual es una demostración funcional de catálogo y borradores. No recibe dinero, consulta blockchain, reserva stock real, compra a proveedores ni envía mensajes por Telegram.
+Esta fase no conecta AyalaPay, no pide credenciales ni direcciones de recepción y no realiza pagos, compras a proveedores, entregas o mensajes. Los pedidos continúan como borradores. La sección financiera no registra esos borradores como ventas.
 
-## Qué significa cada forma de pago
+## Fuente de AyalaPay
 
-**Binance Pay para comercios** es una integración con su propia API y autorización comercial. La cuenta de Binance del comprador o vendedor no demuestra por sí sola que esa API esté disponible. El conector oficial de Binance indica expresamente que las claves se crean en el panel de comerciantes. Referencias: [SDK oficial](https://github.com/binance/binance-pay-connector-python), [introducción de la API](https://developers.binance.com/docs/binance-pay/introduction). Se revisó el README del SDK oficial, commit `a4f6f33f14f0533da5c227552cf395ab6903c705`.
+Repositorio: https://github.com/AYALANET/ayalapay. Lectura de referencia: commit `811edbc2c4dc66e526a9e696b83d283966692816`, versión `0.2.0-sandbox`. Es una observación de esa revisión, no garantía del estado más reciente.
 
-**USDT BEP20** es una transferencia de tokens en BNB Smart Chain. El comprador puede enviarla desde Binance u otra billetera compatible. Eso no convierte la operación en un cobro de Binance Pay. Una dirección pública de recepción no basta para afirmar que la tienda ya verifica depósitos automáticamente.
+La API de pruebas ofrece creación y consulta de facturas autenticadas por comercio. Utiliza `binance_note` y `bep20_wallet`; sus identificadores y payloads no son compatibles con el conector WordPress AyalaSuite 0.4.0 antiguo. No apuntar ese conector al servidor nuevo. La revisión leída no permite ejecutar la aplicación en modo productivo y tiene integración real de Binance/BSC/WooCommerce pendiente. No reutilizar credenciales de otro chat ni copiar datos de su base local.
 
-La siguiente etapa necesita elegir y configurar una de estas vías para USDT:
+Una cuenta normal de Binance puede enviar USDT por BEP20. Eso es distinto de Binance Pay comercial. La vía de Binance por nota que desarrolla AyalaPay deberá demostrar acceso legítimo a la fuente de confirmación y validar destinatario, moneda, importe, nota y tiempo; no se presume operativa por existir su interfaz.
 
-1. Un procesador que permita crear facturas de USDT en BNB Smart Chain, consultar su estado y verificar sus notificaciones firmadas.
-2. Una integración propia con un receptor de fondos definido y un nodo/API de blockchain, con asignación inequívoca de cada depósito a su pedido. Una dirección compartida y una captura de pantalla no cumplen ese requisito.
+## Contrato pendiente para integrar la tienda
 
-El destino de los fondos y el método de asociación de pagos deben quedar definidos antes de mostrar direcciones o QR. No solicitar frases semilla, claves privadas ni contraseñas por chat. Una integración que solo comprueba depósitos no necesita permiso de retiro. Las credenciales se introducen mediante el mecanismo seguro del entorno de despliegue.
+La integración final usará el contrato estable de AyalaPay, no una copia de su motor de pagos. Se necesitan URL productiva HTTPS, credencial exclusiva del comercio y entorno de pruebas separado. Las claves irán en secretos del servidor, nunca en navegador, Git ni chat.
 
-## Comprobaciones exigidas antes de entregar productos
+Asociar el pedido exacto con su factura antes de aceptar confirmaciones. El servidor recalcula importes, conserva una cotización y debe consultar el estado autenticado de AyalaPay. Validar firma, fecha, nonce/evento y comercio; deduplicar eventos y bloquear dobles compras. Una página de retorno, una captura, un hash aportado por el comprador o un estado sandbox no confirman un pago real.
 
-El servidor debe verificar el pedido exacto, moneda, red, contrato permitido del token, decimales, destinatario, importe recibido y vigencia de la factura. Los importes on-chain deben conservarse como enteros de unidad mínima, sin cálculos de coma flotante. No asumir que todos los tokens llamados USDT son el mismo activo.
+Definir pagos insuficientes, excesivos, tardíos, devoluciones y cambios de estado. La compra al proveedor y la entrega necesitan una cola persistente, comprobación tras respuestas inciertas y reanudación sin duplicar. Corregir/revalidar los problemas documentados en el control de reembolsos de FazerCards y reintentos de códigos CentralOne antes de automatizar operaciones reales.
 
-En la vía blockchain, comprobar transacción exitosa y evento de transferencia del contrato previsto; esperar la política de finalidad/confirmaciones acordada y contemplar reorganizaciones. Una consulta de saldo o un hash proporcionado por el comprador no bastan. Guardar una restricción única por red/transacción/evento para que un depósito no pague dos pedidos. Revisar pagos insuficientes, excesivos, tardíos o en otra red sin liberar productos automáticamente.
-
-En la vía de procesador o Binance Pay, comprobar la firma de la notificación y consultar el estado oficial del cobro desde el servidor. Validar identidad e importe contra la factura guardada; rechazar eventos alterados, desconocidos o duplicados. La pantalla de retorno del navegador no confirma un pago.
-
-Una vez confirmado el cobro, una cola persistente podrá tramitar la entrega con una clave única por pedido/proveedor. Los reintentos no deben comprar otra vez. Antes de entregar o reintentar, revisar cancelaciones y reembolsos. La integración y sus pruebas deben cubrir los dos defectos documentados anteriormente para FazerCards y CentralOne cuando se conecten esos proveedores.
-
-Flujo previsto: `borrador → factura pendiente → pago en verificación → pagado → entrega pendiente → entregado`. Los estados de expiración, revisión, cancelación y reembolso se tratarán explícitamente. **La implementación actual solo crea borradores y no contiene ninguna ruta que marque un pedido como pagado.**
+La contabilidad recibirá únicamente cobros y costes verificados, con referencias únicas y moneda explícita. Ver FINANZAS.md. El libro financiero de esta tienda no debe duplicar un saldo de AyalaPay o WooCommerce: informe, saldo y fondos son conceptos diferentes.
 
 ## Telegram
 
-Telegram exige Stars para la venta de bienes digitales realizada mediante bots o Mini Apps: [guía oficial](https://core.telegram.org/bots/payments-stars), [condiciones para desarrolladores](https://telegram.org/tos/bot-developers). La arquitectura elegida mantiene el catálogo y la compra en la web independiente. No introducir un checkout cripto ni una recarga de saldo en un bot/Mini App para sustituir Stars en esas ventas.
+Telegram exige Stars para bienes digitales vendidos mediante bots/Mini Apps: https://core.telegram.org/bots/payments-stars. La arquitectura aceptada mantiene catálogo y compra en la web independiente; Telegram se utilizará para atención y avisos. No introducir checkout cripto ni recarga de saldo en una Mini App para sustituir ese requisito.
 
-Para los avisos posteriores se necesita un bot creado por el propietario y vincular de forma verificable al comprador con su chat después de que este inicie el bot. No aceptar un chat_id arbitrario del navegador para enviar códigos o datos de pedidos. Mantener el token del bot en el servidor, autenticar su webhook, deduplicar eventos y enviar avisos solo sobre pedidos verificados. La primera integración puede limitarse a avisos de estado y atención; la entrega de códigos privados requiere comprobación adicional de identidad.
+La integración futura vinculará de forma verificable al comprador con su chat después de que inicie el bot. No aceptar un `chat_id` arbitrario del navegador para revelar pedidos o códigos. Mantener token y validación del webhook en el servidor. La entrega privada requiere comprobar autorización del destinatario.
 
-## Antes de abrir al público
+## Paso a producción
 
-Se necesitan un dominio HTTPS, alojamiento persistente, copias de seguridad, autenticación recuperable de clientes, protección contra abuso y una base de datos adecuada para concurrencia/varias instancias. SQLite y las sesiones anónimas de 24 horas de esta demostración no sustituyen esa preparación. Configurar productos, precios y stock reales solo mediante una conexión autorizada; la tienda existente no se ha modificado.
-
-Las pruebas comerciales y cualquier cobro real deben hacerse con alcance e importes previamente definidos. Ninguna comprobación local de esta primera versión autoriza a anunciar pagos o entregas reales como operativos.
+Completar alojamiento persistente, copias restaurables, monitorización, controles de acceso/abuso, catálogo y condiciones comerciales reales. Probar el recorrido en un entorno aislado y después una operación real de alcance e importe expresamente autorizados. No activar despliegues automáticos ni anunciar que pagos/entregas funcionan con pruebas locales.

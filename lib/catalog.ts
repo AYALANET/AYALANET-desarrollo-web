@@ -11,6 +11,7 @@ export type Product = {
   color: string;
   mark: string;
   badge?: string;
+  active?: boolean;
 };
 
 // Catálogo ficticio para desarrollo. No representa existencias de los proveedores.
@@ -25,4 +26,15 @@ export const products: readonly Product[] = [
 
 export function formatAmount(cents: number) {
   return (cents / 100).toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export type Cart = Record<string, number>;
+export function sanitizeCart(input: unknown, catalog: readonly Product[] = products): Cart {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const result: Cart = {};
+  for (const product of catalog) {
+    const n = (input as Record<string, unknown>)[product.id];
+    if (product.active !== false && typeof n === "number" && Number.isSafeInteger(n) && n > 0 && product.stock > 0) result[product.id] = Math.min(n, 10, product.stock);
+  }
+  return result;
 }
